@@ -1,5 +1,5 @@
 ORG=integreatly
-NAMESPACE=integreatly
+NAMESPACE=integreatly-operator
 PROJECT=integreatly-operator
 REG=quay.io
 SHELL=/bin/bash
@@ -8,6 +8,8 @@ PKG=github.com/integr8ly/integreatly-operator
 TEST_DIRS?=$(shell sh -c "find $(TOP_SRC_DIRS) -name \\*_test.go -exec dirname {} \\; | sort | uniq")
 TEST_POD_NAME=integreatly-operator-test
 COMPILE_TARGET=./tmp/_output/bin/$(PROJECT)
+AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-"NONE"}
+AWS_ACCESS_KEY=${AWS_ACCESS_KEY:-"NONE"}
 
 .PHONY: setup/dep
 setup/dep:
@@ -21,8 +23,18 @@ setup/moq:
 	cd vendor/github.com/matryer/moq/ && go install .
 
 .PHONY: setup/dedicated
-setup/dedicated:
+setup/dedicated: setup/aws
+	-oc create ns ${NAMESPACE}
 	cd ./scripts && ./dedicated-setup.sh
+
+
+.PHONY: setup/aws
+setup/aws:
+	-oc delete -f deploy/credential_request.yaml
+	sleep 5
+	-oc create -f deploy/credential_request.yaml
+	sleep 7 # allow the secret to be set up (could be made better)
+	source ./scripts/setup_aws_env.sh ${NAMESPACE}
 
 .PHONY: setup/travis
 setup/travis:
@@ -39,7 +51,7 @@ setup/service_account:
 
 .PHONY: code/run
 code/run:
-	@operator-sdk up local --namespace=$(NAMESPACE)
+	operator-sdk up local --namespace=$(NAMESPACE)
 
 .PHONY: code/run/service_account
 code/run/service_account: setup/service_account

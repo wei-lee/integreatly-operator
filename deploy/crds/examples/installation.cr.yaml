@@ -3,8 +3,8 @@ kind: Installation
 metadata:
   name: example-installation
 spec:
-  type: workshop
-  namespacePrefix: integreatly-
-  routingSubdomain: apps.example.com
-  masterUrl: http://console.apps.example.com
+  masterUrl: 'https://console-openshift-console.apps.cb.cloudservices.rhmw.io'
+  namespacePrefix: openshift-
+  routingSubdomain: apps.cb.cloudservices.rhmw.io
   selfSignedCerts: true
+  type: managed

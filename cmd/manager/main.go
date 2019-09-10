@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/integr8ly/integreatly-operator/pkg/providers"
+	"github.com/sirupsen/logrus"
 	"os"
 	"runtime"
 
@@ -117,6 +119,59 @@ func main() {
 	}
 
 	log.Info("Starting the Cmd.")
+
+	providerFactory := providers.CloudProviderFactory{}
+	provider, err := providerFactory.Get("aws")
+	if err != nil{
+		panic("unable to get cloud provider " + err.Error())
+	}
+	var bucket = "test-operator-bucket"
+	if err := provider.CreateCloudStorage(bucket); err != nil{
+		logrus.Error("aws error: ", err)
+	}
+	logrus.Info("created bucket ")
+	if err := provider.ListCloudStorage(); err != nil{
+		logrus.Error("aws error list: ", err)
+	}
+	logrus.Info("listed bucket ")
+	if err := provider.RemoveCloudStorage( bucket); err != nil{
+		logrus.Error("aws error: ", err)
+	}
+	logrus.Info("deleted bucket ")
+	cloudCache := providers.CloudCache{
+		ClusterName:"mycluster",
+		Engine:providers.CloudCacheEngineRedis,
+		EngineVersion:"3.2.4",
+		Type: providers.CloudCacheTypeDev,
+	}
+	fmt.Println("creating elastic cache")
+	if _, err := provider.CreateCloudCache(cloudCache); err != nil{
+		logrus.Error("aws error create elasticache : ", err)
+	}
+	fmt.Println("removing elastic cache")
+	if err := provider.RemoveCloudCache(cloudCache); err != nil{
+		logrus.Error("aws error create elasticache : ", err)
+	}
+	cloudDB := providers.CloudDB{
+		ClusterName:"mycluster",
+		Type: providers.CloudDBTypeDev,
+		EngineVersion:"9.6", DBName:"mydb",
+		Engine:providers.CloudDbEnginePostgres,
+		RetentionPeriod:7,
+		StorageSize:50,
+	}
+	coords, err := provider.CreateCloudDB(cloudDB)
+	if err != nil{
+		logrus.Error("aws error create rds : ", err)
+	}
+	if coords != nil {
+		fmt.Println("created rds instance " + coords.String())
+	}
+	if err := provider.RemoveCloudDB(cloudDB); err != nil{
+		logrus.Error("aws error delete rds : ", err)
+	}
+
+
 
 	// Start the Cmd
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {

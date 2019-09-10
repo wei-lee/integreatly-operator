@@ -53,3 +53,21 @@ spec:
         name: integreatly
         source: installed-integreatly-operator
         sourceNamespace: integreatly-operator
+    - apiVersion: cloudcredential.openshift.io/v1
+      kind: CredentialsRequest
+      metadata:
+        name: integreatly
+        namespace: openshift-cloud-credential-operator
+      spec:
+        secretRef:
+          name: integreatly-cloud-credentials
+          namespace: integreatly-operator
+        providerSpec:
+          apiVersion: cloudcredential.openshift.io/v1
+          kind: AWSProviderSpec
+          statementEntries:
+            - effect: Allow
+              action:
+                - s3:CreateBucket
+                - s3:DeleteBucket
+              resource: "*"
