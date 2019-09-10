@@ -180,17 +180,23 @@ func (awsServ *AWSServices)CreateCloudCache(c CloudCache)(*CloudCacheCoords,erro
 	reg := regexp.MustCompile("\\s+")
 	cci := &elasticache.CreateCacheClusterInput{}
 	cci.SetCacheClusterId(reg.ReplaceAllString(c.ClusterName, "-"))
-	cci.SetAuthToken("changeme")
 	cci.SetAutoMinorVersionUpgrade(true)
 	cci.SetCacheNodeType("cache.t1.micro")
 	cci.SetEngine("redis")
 	cci.SetEngineVersion(c.EngineVersion)
 	cci.SetNumCacheNodes(1)
 	cci.SetPort(6397)
+
 	//cci.SetPreferredAvailabilityZone()
-	cci.SetSnapshotRetentionLimit(2)
+	//cci.SetSnapshotRetentionLimit(2) // think we might need cacheApi.CreateReplicationGroup()
+
 	if _ , err := cacheApi.CreateCacheCluster(cci); err != nil{
 		return nil,err
+	}
+	if err := cacheApi.WaitUntilCacheClusterAvailable(&elasticache.DescribeCacheClustersInput{
+		CacheClusterId:cci.CacheClusterId,
+	}); err != nil{
+		return nil, errors.Wrap(err, "failed to wait for cache instance to be ready")
 	}
 	return &CloudCacheCoords{}, nil
 }
