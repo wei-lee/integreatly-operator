@@ -3,6 +3,7 @@ package e2e
 import (
 	goctx "context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,6 +75,28 @@ func waitForProductDeployment(t *testing.T, f *framework.Framework, ctx *framewo
 	elapsed := end.Sub(start)
 
 	t.Logf("%s:%s up, waited %d", namespace, deploymentName, elapsed)
+	return nil
+}
+
+func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framework.TestCtx) error {
+	prometheusRouteCR := &routev1.Route{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "prometheus-route",
+			Namespace: intlyNamespacePrefix + "middleware-monitoring",
+		},
+	}
+	key := client.ObjectKey{
+		Name:      prometheusRouteCR.GetName(),
+		Namespace: prometheusRouteCR.GetNamespace(),
+	}
+	err := f.Client.Get(goctx.TODO(), key, prometheusRouteCR)
+	if err != nil {
+		return fmt.Errorf("could not get prometheus route: %deploymentName", err)
+	}
+
+	promHost := prometheusRouteCR.Status.Ingress[0].Host
+	t.Logf("promHost=%s", promHost)
+	//resp, err := http.Get(promHost+ "/api/v1")
 	return nil
 }
 
@@ -221,24 +244,27 @@ func waitForInstallationStageCompletion(t *testing.T, f *framework.Framework, na
 func IntegreatlyCluster(t *testing.T) {
 	ctx := framework.NewTestCtx(t)
 	defer ctx.Cleanup()
-	err := ctx.InitializeClusterResources(&framework.CleanupOptions{TestContext: ctx, Timeout: cleanupTimeout, RetryInterval: cleanupRetryInterval})
-	if err != nil {
-		t.Fatalf("failed to initialize cluster resources: %v", err)
-	}
-	t.Log("Initialized cluster resources")
-	namespace, err := ctx.GetNamespace()
-	if err != nil {
-		t.Fatal(err)
-	}
+	//err := ctx.InitializeClusterResources(&framework.CleanupOptions{TestContext: ctx, Timeout: cleanupTimeout, RetryInterval: cleanupRetryInterval})
+	//if err != nil {
+	//	t.Fatalf("failed to initialize cluster resources: %v", err)
+	//}
+	//t.Log("Initialized cluster resources")
+	//namespace, err := ctx.GetNamespace()
+	//if err != nil {
+	//	t.Fatal(err)
+	//}
 	// get global framework variables
 	f := framework.Global
 	// wait for integreatly-operator to be ready
-	err = e2eutil.WaitForOperatorDeployment(t, f.KubeClient, namespace, "integreatly-operator", 1, retryInterval, timeout)
-	if err != nil {
-		t.Fatal(err)
-	}
+	//err = e2eutil.WaitForOperatorDeployment(t, f.KubeClient, namespace, "integreatly-operator", 1, retryInterval, timeout)
+	//if err != nil {
+	//	t.Fatal(err)
+	//}
 	// check that all of the operators deploy and all of the installation phases complete
-	if err = integreatlyManagedTest(t, f, ctx); err != nil {
+	//if err = integreatlyManagedTest(t, f, ctx); err != nil {
+	//	t.Fatal(err)
+	//}
+	if err = integreatlyMonitoringTest(t, f, ctx); err != nil {
 		t.Fatal(err)
 	}
 }
