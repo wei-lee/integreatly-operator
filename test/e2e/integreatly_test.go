@@ -143,7 +143,7 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 	var pendingalerts []string
 	var deadmanswitchfiring = false
 	for a := 0; a < len(promApiCallOutput.Data.Alerts) ; a++{
-		if promApiCallOutput.Data.Alerts[a].Labels.Alertname == "DeadMansSwitch"{
+		if promApiCallOutput.Data.Alerts[a].Labels.Alertname == "DeadMansSwitch" && promApiCallOutput.Data.Alerts[a].State == "firing"{
 			deadmanswitchfiring = true
 		}
 		if promApiCallOutput.Data.Alerts[a].Labels.Alertname != "DeadMansSwitch" {
