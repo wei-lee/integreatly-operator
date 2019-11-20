@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	goctx "context"
+	"encoding/json"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -82,6 +83,35 @@ func waitForProductDeployment(t *testing.T, f *framework.Framework, ctx *framewo
 }
 
 func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framework.TestCtx) error {
+
+	// Define the json output of the prometheus api call
+	type Labels struct {
+		Alertname string `json:"alertname,omitempty"`
+		Severity string  `json:"severity,omitempty"`
+	}
+
+	type Annotations struct {
+		Message string `json:"message,omitempty"`
+	}
+	
+	type Alerts struct {
+		Labels Labels `json:"labels,omitempty"`
+		State string `json:"state,omitempty"`
+		Annotations Annotations `json:"annotations,omitempty"`
+		ActiveAt string `json:"activeAt,omitempty"`
+		Value string `json:"value,omitempty"`
+	}
+
+	type Data struct{
+		Alerts []Alerts `json:"alerts,omitempty"`
+	}
+
+	type Output struct{
+		Status string `json:"status"`
+		Data Data `json:"data"`
+
+	}
+
 	grafanaDashboardsCM := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "grafana-dashboards",
@@ -100,17 +130,36 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 	//data := grafanaDashboardsCM.Data
 	//t.Logf("CM: %s", data)
 
-	command := "curl localhost:9090/api/v1/alerts"
-	namespace := "integreatly-middleware-monitoring"
-	podname:= "prometheus-application-monitoring-0"
-	containername:= "prometheus"
-
-	output, err := execToPod(command, podname, namespace, containername, f )
+	output, err := execToPod("curl localhost:9090/api/v1/alerts",
+							"prometheus-application-monitoring-0",
+							"integreatly-middleware-monitoring",
+							"prometheus", f )
+	if err != nil {
+		return fmt.Errorf("failed to exec to pod: %s" , err)
+	}
 
 	t.Logf("output: %s" , output)
+	myJsonString := `{"status":"success","data":{"alerts":[{"labels":{"alertname":"ESNotReady","severity":"warning"},"annotations":{"message":"Not all Elastic Search replication controllers are in a ready state."},"state":"firing","activeAt":"2019-11-20T10:02:27.667374029Z","value":"3e+00"},{"labels":{"alertname":"ClusterSchedulableMemoryLow","severity":"warning"},"annotations":{"message":"The cluster has 99% of memory requested and unavailable for scheduling for longer than 15 minutes."},"state":"firing","activeAt":"2019-11-20T10:02:27.667374029Z","value":"9.881767105240749e+01"},{"labels":{"alertname":"DeadMansSwitch","severity":"none"},"annotations":{"description":"This is a DeadMansSwitch meant to ensure that the entire Alerting pipeline is functional.","summary":"Alerting DeadMansSwitch"},"state":"firing","activeAt":"2019-11-11T16:09:50.701028455Z","value":"1e+00"}]}}`
 
-	
+	var promApiCallOutput Output
+	err = json.Unmarshal([]byte(myJsonString), &promApiCallOutput)
+	if err != nil{
+		t.Logf("Failed to unmarshall json: %s", err)
+	}
 
+	// Check if any alerts other than DeadMansSwitch are firing
+	var firingalerts []string
+	for a := 0; a < len(promApiCallOutput.Data.Alerts) ; a++{
+		if promApiCallOutput.Data.Alerts[a].Labels.Alertname != "DeadMansSwitch" {
+			firingalerts = append(firingalerts, promApiCallOutput.Data.Alerts[a].Labels.Alertname)
+		}
+	}
+
+	if len(firingalerts) > 0{
+		return fmt.Errorf( string(len(firingalerts)) + "Alerts are firing: %s ", firingalerts)
+	}
+
+	//t.Logf("alerts: %s", promApiCallOutput.Data.Alerts)
 	return nil
 }
 
