@@ -93,7 +93,7 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 	type Annotations struct {
 		Message string `json:"message,omitempty"`
 	}
-	
+
 	type Alerts struct {
 		Labels Labels `json:"labels,omitempty"`
 		State string `json:"state,omitempty"`
@@ -112,24 +112,6 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 
 	}
 
-	grafanaDashboardsCM := &v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "grafana-dashboards",
-			Namespace: "integreatly-middleware-monitoring",
-		},
-	}
-	key := client.ObjectKey{
-		Name:      grafanaDashboardsCM.GetName(),
-		Namespace: grafanaDashboardsCM.GetNamespace(),
-	}
-	err := f.Client.Get(goctx.TODO(), key, grafanaDashboardsCM)
-	if err != nil {
-			return fmt.Errorf("could not get configmap: %podName", err)
-	}
-
-	//data := grafanaDashboardsCM.Data
-	//t.Logf("CM: %s", data)
-
 	output, err := execToPod("curl localhost:9090/api/v1/alerts",
 							"prometheus-application-monitoring-0",
 							"integreatly-middleware-monitoring",
@@ -138,28 +120,61 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 		return fmt.Errorf("failed to exec to pod: %s" , err)
 	}
 
+	// just log it for now, once the resources are in the operator we can actually use it
 	t.Logf("output: %s" , output)
-	myJsonString := `{"status":"success","data":{"alerts":[{"labels":{"alertname":"ESNotReady","severity":"warning"},"annotations":{"message":"Not all Elastic Search replication controllers are in a ready state."},"state":"firing","activeAt":"2019-11-20T10:02:27.667374029Z","value":"3e+00"},{"labels":{"alertname":"ClusterSchedulableMemoryLow","severity":"warning"},"annotations":{"message":"The cluster has 99% of memory requested and unavailable for scheduling for longer than 15 minutes."},"state":"firing","activeAt":"2019-11-20T10:02:27.667374029Z","value":"9.881767105240749e+01"},{"labels":{"alertname":"DeadMansSwitch","severity":"none"},"annotations":{"description":"This is a DeadMansSwitch meant to ensure that the entire Alerting pipeline is functional.","summary":"Alerting DeadMansSwitch"},"state":"firing","activeAt":"2019-11-11T16:09:50.701028455Z","value":"1e+00"}]}}`
+
+	// dummy failure and success strings for testing
+
+	// dms = true firing and pending alerts
+	failure := `{"status":"success","data":{"alerts":[{"labels":{"alertname":"ESNotReady","severity":"warning"},"annotations":{"message":"Not all Elastic Search replication controllers are in a ready state."},"state":"firing","activeAt":"2019-11-20T10:02:27.667374029Z","value":"3e+00"},{"labels":{"alertname":"ClusterSchedulableMemoryLow","severity":"warning"},"annotations":{"message":"The cluster has 99% of memory requested and unavailable for scheduling for longer than 15 minutes."},"state":"pending","activeAt":"2019-11-20T10:02:27.667374029Z","value":"9.881767105240749e+01"},{"labels":{"alertname":"DeadMansSwitch","severity":"none"},"annotations":{"description":"This is a DeadMansSwitch meant to ensure that the entire Alerting pipeline is functional.","summary":"Alerting DeadMansSwitch"},"state":"firing","activeAt":"2019-11-11T16:09:50.701028455Z","value":"1e+00"}]}}`
+
+	// dms = true no firing or pending alerts
+	//success := `{"status":"success","data":{"alerts":[{"labels":{"alertname":"DeadMansSwitch","severity":"none"},"annotations":{"description":"This is a DeadMansSwitch meant to ensure that the entire Alerting pipeline is functional.","summary":"Alerting DeadMansSwitch"},"state":"firing","activeAt":"2019-11-11T16:09:50.701028455Z","value":"1e+00"}]}}`
+
 
 	var promApiCallOutput Output
-	err = json.Unmarshal([]byte(myJsonString), &promApiCallOutput)
+	err = json.Unmarshal([]byte(failure), &promApiCallOutput)
 	if err != nil{
 		t.Logf("Failed to unmarshall json: %s", err)
 	}
 
-	// Check if any alerts other than DeadMansSwitch are firing
+	// Check if any alerts other than DeadMansSwitch are firing or pending
 	var firingalerts []string
+	var pendingalerts []string
+	var deadmanswitchfiring = false
 	for a := 0; a < len(promApiCallOutput.Data.Alerts) ; a++{
+		if promApiCallOutput.Data.Alerts[a].Labels.Alertname == "DeadMansSwitch"{
+			deadmanswitchfiring = true
+		}
 		if promApiCallOutput.Data.Alerts[a].Labels.Alertname != "DeadMansSwitch" {
-			firingalerts = append(firingalerts, promApiCallOutput.Data.Alerts[a].Labels.Alertname)
+			if promApiCallOutput.Data.Alerts[a].State == "firing" {
+				firingalerts = append(firingalerts, promApiCallOutput.Data.Alerts[a].Labels.Alertname)
+			}
+			if promApiCallOutput.Data.Alerts[a].State == "pending"{
+				pendingalerts = append(pendingalerts, promApiCallOutput.Data.Alerts[a].Labels.Alertname)
+			}
 		}
 	}
 
-	if len(firingalerts) > 0{
-		return fmt.Errorf( string(len(firingalerts)) + "Alerts are firing: %s ", firingalerts)
+	var status []string
+	if len(firingalerts) > 0 {
+		falert := fmt.Sprint(string(len(firingalerts))+ "Firing alerts: ", firingalerts)
+		status = append(status, falert)
+	}
+	if len(pendingalerts) > 0 {
+		palert := fmt.Sprint(string(len(pendingalerts))+ "Pending alerts: ", pendingalerts)
+		status = append(status, palert)
+	}
+	if deadmanswitchfiring == false{
+		dms := fmt.Sprint("DeadMansSwitch is not firing: ", deadmanswitchfiring)
+		status = append(status, dms)
 	}
 
-	//t.Logf("alerts: %s", promApiCallOutput.Data.Alerts)
+	if len(status) > 0 {
+		return fmt.Errorf("alert tests failed: %s", status)
+	}
+
+	t.Logf("No unexpected alerts found")
 	return nil
 }
 
@@ -203,6 +218,25 @@ func execToPod(command string, podname string, namespace string, container strin
 	return stdout.String(), nil
 }
 
+
+func getConfigMap (name string, namespace string, f *framework.Framework) (map[string]string, error) {
+	configmap := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+	key := client.ObjectKey{
+		Name:      configmap.GetName(),
+		Namespace: configmap.GetNamespace(),
+	}
+	err := f.Client.Get(goctx.TODO(), key, configmap)
+	if err != nil {
+		return map[string]string{}, fmt.Errorf("could not get configmap: %configmapname", err)
+	}
+
+	return configmap.Data, nil
+}
 func integreatlyManagedTest(t *testing.T, f *framework.Framework, ctx *framework.TestCtx) error {
 	namespace, err := ctx.GetNamespace()
 	if err != nil {
