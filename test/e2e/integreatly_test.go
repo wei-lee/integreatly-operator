@@ -100,26 +100,35 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 	//data := grafanaDashboardsCM.Data
 	//t.Logf("CM: %s", data)
 
-	command := []string{"curl", "localhost:9090/api/v1/alerts"}
+	command := "curl localhost:9090/api/v1/alerts"
 	namespace := "integreatly-middleware-monitoring"
 	podname:= "prometheus-application-monitoring-0"
 	containername:= "prometheus"
-	//var stdin io.Reader
 
+	output, err := execToPod(command, podname, namespace, containername, f )
+
+	t.Logf("output: %s" , output)
+
+	
+
+	return nil
+}
+
+func execToPod(command string, podname string, namespace string, container string, f *framework.Framework ) (string, error){
 	req := f.KubeClient.CoreV1().RESTClient().Post().
-			Resource("pods").
-			Name(podname).
-			Namespace(namespace).
-			SubResource("exec").
-			Param("container", containername)
+		Resource("pods").
+		Name(podname).
+		Namespace(namespace).
+		SubResource("exec").
+		Param("container", container)
 	scheme := runtime.NewScheme()
 	if err := v1.AddToScheme(scheme); err != nil {
-		return fmt.Errorf("error adding to scheme: %v", err)
+		return "", fmt.Errorf("error adding to scheme: %v", err)
 	}
 	parameterCodec := runtime.NewParameterCodec(scheme)
 	req.VersionedParams(&v1.PodExecOptions{
-		Container: 	containername,
-		Command:	command,
+		Container: 	container,
+		Command:	strings.Fields(command),
 		Stdin:		false,
 		Stdout:     true,
 		Stderr:		true,
@@ -128,7 +137,7 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 
 	exec, err := remotecommand.NewSPDYExecutor(f.KubeConfig, "POST", req.URL())
 	if err != nil {
-		return fmt.Errorf("error while creating Executor: %v", err)
+		return "", fmt.Errorf("error while creating Executor: %v", err)
 	}
 
 	var stdout, stderr  bytes.Buffer
@@ -139,10 +148,10 @@ func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framew
 		Tty:    false,
 	})
 	if err != nil {
-		return fmt.Errorf("error in Stream: %v", err)
+		return "", fmt.Errorf("error in Stream: %v", err)
 	}
-	t.Logf(stdout.String())
-	return nil
+
+	return stdout.String(), nil
 }
 
 func integreatlyManagedTest(t *testing.T, f *framework.Framework, ctx *framework.TestCtx) error {
