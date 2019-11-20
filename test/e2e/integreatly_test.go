@@ -1,14 +1,17 @@
 package e2e
 
 import (
+	"bytes"
 	goctx "context"
 	"fmt"
-	"net/http"
+
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/remotecommand"
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	//"sigs.k8s.io/controller-runtime/pkg/client"
 	"testing"
 	"time"
 
@@ -79,24 +82,66 @@ func waitForProductDeployment(t *testing.T, f *framework.Framework, ctx *framewo
 }
 
 func integreatlyMonitoringTest(t *testing.T, f *framework.Framework, ctx *framework.TestCtx) error {
-	prometheusRouteCR := &routev1.Route{
+	grafanaDashboardsCM := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "prometheus-route",
-			Namespace: intlyNamespacePrefix + "middleware-monitoring",
+			Name:      "grafana-dashboards",
+			Namespace: "integreatly-middleware-monitoring",
 		},
 	}
 	key := client.ObjectKey{
-		Name:      prometheusRouteCR.GetName(),
-		Namespace: prometheusRouteCR.GetNamespace(),
+		Name:      grafanaDashboardsCM.GetName(),
+		Namespace: grafanaDashboardsCM.GetNamespace(),
 	}
-	err := f.Client.Get(goctx.TODO(), key, prometheusRouteCR)
+	err := f.Client.Get(goctx.TODO(), key, grafanaDashboardsCM)
 	if err != nil {
-		return fmt.Errorf("could not get prometheus route: %deploymentName", err)
+			return fmt.Errorf("could not get configmap: %podName", err)
 	}
 
-	promHost := prometheusRouteCR.Status.Ingress[0].Host
-	t.Logf("promHost=%s", promHost)
-	//resp, err := http.Get(promHost+ "/api/v1")
+	//data := grafanaDashboardsCM.Data
+	//t.Logf("CM: %s", data)
+
+	command := []string{"curl", "localhost:9090/api/v1/alerts"}
+	namespace := "integreatly-middleware-monitoring"
+	podname:= "prometheus-application-monitoring-0"
+	containername:= "prometheus"
+	//var stdin io.Reader
+
+	req := f.KubeClient.CoreV1().RESTClient().Post().
+			Resource("pods").
+			Name(podname).
+			Namespace(namespace).
+			SubResource("exec").
+			Param("container", containername)
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		return fmt.Errorf("error adding to scheme: %v", err)
+	}
+	parameterCodec := runtime.NewParameterCodec(scheme)
+	req.VersionedParams(&v1.PodExecOptions{
+		Container: 	containername,
+		Command:	command,
+		Stdin:		false,
+		Stdout:     true,
+		Stderr:		true,
+		TTY:		false,
+	}, parameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(f.KubeConfig, "POST", req.URL())
+	if err != nil {
+		return fmt.Errorf("error while creating Executor: %v", err)
+	}
+
+	var stdout, stderr  bytes.Buffer
+	err = exec.Stream(remotecommand.StreamOptions{
+		Stdin:  nil,
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
+	})
+	if err != nil {
+		return fmt.Errorf("error in Stream: %v", err)
+	}
+	t.Logf(stdout.String())
 	return nil
 }
 
@@ -264,7 +309,7 @@ func IntegreatlyCluster(t *testing.T) {
 	//if err = integreatlyManagedTest(t, f, ctx); err != nil {
 	//	t.Fatal(err)
 	//}
-	if err = integreatlyMonitoringTest(t, f, ctx); err != nil {
+	if err := integreatlyMonitoringTest(t, f, ctx); err != nil {
 		t.Fatal(err)
 	}
 }
