@@ -3,6 +3,8 @@ package rhsso
 import (
 	"context"
 	"fmt"
+	v12 "github.com/openshift/api/route/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"strings"
 
 	v1alpha12 "github.com/integr8ly/integreatly-operator/pkg/apis/monitoring/v1alpha1"
@@ -70,6 +72,7 @@ type Reconciler struct {
 	installation  *v1alpha1.Installation
 	logger        *logrus.Entry
 	oauthv1Client oauthClient.OauthV1Interface
+	KeycloakHost  string
 	*resources.Reconciler
 }
 
@@ -148,6 +151,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, inst *v1alpha1.Installation,
 		return phase, err
 	}
 
+	phase, err = r.createKeycloakRoute(ctx, inst, serverClient)
+	if err != nil || phase != v1alpha1.PhaseCompleted {
+		return phase, err
+	}
+
 	phase, err = r.reconcileBlackboxTargets(ctx, inst, serverClient)
 	if err != nil || phase != v1alpha1.PhaseCompleted {
 		return phase, err
@@ -163,6 +171,88 @@ func (r *Reconciler) Reconcile(ctx context.Context, inst *v1alpha1.Installation,
 	product.OperatorVersion = r.Config.GetOperatorVersion()
 
 	r.logger.Infof("%s has reconciled successfully", r.Config.GetProductName())
+	return v1alpha1.PhaseCompleted, nil
+}
+
+// workaround: the keycloak operator creates a route with TLS passthrough config
+// this should use the same valid certs as the cluster itself but for some reason the
+// signing operator gives out self signed certs
+// to circumvent this we create another keycloak route with edge termination
+func (r *Reconciler) createKeycloakRoute(ctx context.Context, inst *v1alpha1.Installation, serverClient pkgclient.Client) (v1alpha1.StatusPhase, error) {
+	// We need to create a workaround service to allow accessing keycloak on
+	// the http port
+	httpService := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "keycloak-http",
+			Namespace: r.Config.GetNamespace(),
+		},
+	}
+
+	// We need a route with edge termination to serve the correct cluster certificate
+	edgeRoute := &v12.Route{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "keycloak-edge",
+			Namespace: r.Config.GetNamespace(),
+		},
+	}
+
+	or, err := controllerutil.CreateOrUpdate(ctx, serverClient, httpService, func() error {
+		clusterIp := httpService.Spec.ClusterIP
+		httpService.Spec = v1.ServiceSpec{
+			ClusterIP: clusterIp,
+			Ports: []v1.ServicePort{
+				{
+					Name:       "keycloak",
+					Protocol:   v1.ProtocolTCP,
+					Port:       8443,
+					TargetPort: intstr.FromInt(8080),
+				},
+			},
+			Selector: map[string]string{
+				"app":       "keycloak",
+				"component": "keycloak",
+			},
+			Type: v1.ServiceTypeClusterIP,
+		}
+		return nil
+	})
+
+	if err != nil {
+		return v1alpha1.PhaseFailed, errors.Wrap(err, "error creating keycloak http service")
+	}
+	r.logger.Info(fmt.Sprintf("operation result of creating %v service was %v", httpService.Name, or))
+
+	or, err = controllerutil.CreateOrUpdate(ctx, serverClient, edgeRoute, func() error {
+		edgeRoute.Spec = v12.RouteSpec{
+			To: v12.RouteTargetReference{
+				Kind: "Service",
+				Name: "keycloak-http",
+			},
+			Port: &v12.RoutePort{
+				TargetPort: intstr.FromString("keycloak"),
+			},
+			TLS: &v12.TLSConfig{
+				Termination:                   v12.TLSTerminationEdge,
+				InsecureEdgeTerminationPolicy: v12.InsecureEdgeTerminationPolicyRedirect,
+			},
+			WildcardPolicy: v12.WildcardPolicyNone,
+		}
+		return nil
+	})
+
+	if err != nil {
+		return v1alpha1.PhaseFailed, errors.Wrap(err, "error creating keycloak http service")
+	}
+	r.logger.Info(fmt.Sprintf("operation result of creating %v service was %v", edgeRoute.Name, or))
+
+	if edgeRoute.Spec.Host == "" {
+		return v1alpha1.PhaseInProgress, nil
+	}
+
+	// Override the keycloak host to the host of the edge route (instead of the
+	// operator generated route)
+	r.KeycloakHost = fmt.Sprintf("https://%v", edgeRoute.Spec.Host)
+
 	return v1alpha1.PhaseCompleted, nil
 }
 
@@ -322,7 +412,12 @@ func (r *Reconciler) exportConfig(ctx context.Context, serverClient pkgclient.Cl
 	}
 
 	r.Config.SetRealm(keycloakRealmName)
-	r.Config.SetHost(kc.Status.InternalURL)
+
+	// TODO: once the keycloak operator generates a route with a valid certificate, that
+	// should be reverted back to using the InternalURL
+	// r.Config.SetHost(kc.Status.InternalURL)
+	r.Config.SetHost(r.KeycloakHost)
+
 	err = r.ConfigManager.WriteConfig(r.Config)
 	if err != nil {
 		return pkgerr.Wrap(err, "could not update keycloak config")
