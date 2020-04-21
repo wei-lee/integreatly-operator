@@ -5,13 +5,7 @@ set -o pipefail
 PREVIOUS_VERSION="$(cat deploy/olm-catalog/integreatly-operator/integreatly-operator.package.yaml | grep integreatly-operator | awk -F v '{print $2}')"
 
 create_new_csv() {
-  cp -r deploy/olm-catalog/integreatly-operator/integreatly-operator-${PREVIOUS_VERSION} deploy/olm-catalog/integreatly-operator/${PREVIOUS_VERSION}
   operator-sdk generate csv --csv-version "$VERSION" --default-channel --csv-channel=rhmi --update-crds --from-version "$PREVIOUS_VERSION"
-}
-
-# We use an integreatly-operator- prefix in our folder structure so we need to move the directory the operator-sdk creates to match
-move_generated_csv_to_folder() {
-  mv deploy/olm-catalog/integreatly-operator/${VERSION} deploy/olm-catalog/integreatly-operator/integreatly-operator-${VERSION}
 }
 
 # Creating a new release version
@@ -20,15 +14,15 @@ set_new_version() {
   sed -i "s/$PREVIOUS_VERSION/$VERSION/g" version/version.go
   sed -i "s/$PREVIOUS_VERSION/$VERSION/g" Makefile
   sed -i "s/PREVIOUS_TAG ?=.*/PREVIOUS_TAG ?=$PREVIOUS_VERSION/g" Makefile
-  sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$VERSION/g" deploy/olm-catalog/integreatly-operator/integreatly-operator-${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
-  sed -i "s/containerImage:.*/containerImage: quay\.io\/integreatly\/integreatly-operator:v$VERSION/g" deploy/olm-catalog/integreatly-operator/integreatly-operator-${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
+  sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$VERSION/g" deploy/olm-catalog/integreatly-operator/${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
+  sed -i "s/containerImage:.*/containerImage: quay\.io\/integreatly\/integreatly-operator:v$VERSION/g" deploy/olm-catalog/integreatly-operator/${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
 }
 
 # Creating a new tag on the already existing release
 set_new_tag() {
   sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$PREVIOUS_VERSION-$TAG/g" deploy/operator.yaml
-  sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$PREVIOUS_VERSION-$TAG/g" deploy/olm-catalog/integreatly-operator/integreatly-operator-${PREVIOUS_VERSION}/integreatly-operator.v${PREVIOUS_VERSION}.clusterserviceversion.yaml
-  sed -i "s/version: ${PREVIOUS_VERSION}.*/version: ${PREVIOUS_VERSION}-${TAG}/g" deploy/olm-catalog/integreatly-operator/integreatly-operator-${PREVIOUS_VERSION}/integreatly-operator.v${PREVIOUS_VERSION}.clusterserviceversion.yaml
+  sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$PREVIOUS_VERSION-$TAG/g" deploy/olm-catalog/integreatly-operator/${PREVIOUS_VERSION}/integreatly-operator.v${PREVIOUS_VERSION}.clusterserviceversion.yaml
+  sed -i "s/version: ${PREVIOUS_VERSION}.*/version: ${PREVIOUS_VERSION}-${TAG}/g" deploy/olm-catalog/integreatly-operator/${PREVIOUS_VERSION}/integreatly-operator.v${PREVIOUS_VERSION}.clusterserviceversion.yaml
 }
 
 # Creating a new release with a tag
@@ -36,14 +30,13 @@ set_new_version_with_tag() {
   sed -i "s/$PREVIOUS_VERSION/$VERSION/g" Makefile
   sed -i "s/PREVIOUS_TAG ?=.*/PREVIOUS_TAG ?=$PREVIOUS_VERSION/g" Makefile
   sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$VERSION-$TAG/g" deploy/operator.yaml
-  sed -i "s/containerImage:.*/containerImage: quay\.io\/integreatly\/integreatly-operator:v$VERSION/g" deploy/olm-catalog/integreatly-operator/integreatly-operator-${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
-  sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$VERSION-$TAG/g" deploy/olm-catalog/integreatly-operator/integreatly-operator-${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
-  sed -i "s/version: $VERSION.*/version: $VERSION-$TAG/g" deploy/olm-catalog/integreatly-operator/integreatly-operator-${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
+  sed -i "s/containerImage:.*/containerImage: quay\.io\/integreatly\/integreatly-operator:v$VERSION/g" deploy/olm-catalog/integreatly-operator/${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
+  sed -i "s/image:.*/image: quay\.io\/integreatly\/integreatly-operator:v$VERSION-$TAG/g" deploy/olm-catalog/integreatly-operator/${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
+  sed -i "s/version: $VERSION.*/version: $VERSION-$TAG/g" deploy/olm-catalog/integreatly-operator/${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml
 }
 
 clean_up() {
   rm -rf deploy/olm-catalog/integreatly-operator/${PREVIOUS_VERSION}
-  rm -rf deploy/olm-catalog/integreatly-operator/integreatly-operator-${PREVIOUS_VERSION}
 }
 
 print_usage() {
@@ -67,7 +60,6 @@ fi
 # New version and new tag
 if [[ -n "${TAG}" && -n "${VERSION}" ]]; then
   create_new_csv
-  move_generated_csv_to_folder
   set_new_version_with_tag
   clean_up
 fi
@@ -75,7 +67,6 @@ fi
 # New version and no new tag
 if [[ -n "${VERSION}" && -z "${TAG}" ]]; then
   create_new_csv
-  move_generated_csv_to_folder
   set_new_version
   clean_up
 fi
