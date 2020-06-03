@@ -25,7 +25,7 @@ set_images() {
 
 set_csv_not_service_affecting() {
   echo "Update CSV for release $SEMVER to be not service affecting"
-  yq w -i "deploy/olm-catalog/integreatly-operator/${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml" metadata.annotations.serviceAffecting false
+  yq w -i "deploy/olm-catalog/integreatly-operator/${VERSION}/integreatly-operator.v${VERSION}.clusterserviceversion.yaml" --tag '!!str' metadata.annotations.serviceAffecting "false"
 }
 
 if [[ -z "$SEMVER" ]]; then
